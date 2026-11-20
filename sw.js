@@ -1,7 +1,7 @@
 // Keeps a copy of the card planner on the device so it opens with no Wi-Fi.
 // Author: Tamara Nguyen
 // build.py puts the page's version in CACHE, so a new build replaces the old copy.
-const CACHE = "card-planner-92c954642f";
+const CACHE = "card-planner-ffe8af1922";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", event => {

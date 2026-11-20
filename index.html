@@ -89,12 +89,33 @@ canvas.burst { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 
 .card[aria-pressed="true"] { border-color: var(--accent); background: var(--panel); box-shadow: inset 0 0 0 1px var(--accent); }
 .card[aria-pressed="true"] .num { color: var(--accent); }
 .card:disabled { opacity: 0.32; cursor: not-allowed; }
+/* one picker for both cards: Start and End say which one a tap sets, and the grid tags the other one */
+.which { display: grid; grid-template-columns: 1fr auto 1fr auto; align-items: center; gap: 8px; margin-bottom: 6px; }
+.wh { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; align-items: center; column-gap: 8px; text-align: left; padding: 6px 10px 6px 6px; border-radius: 10px; border: 2px solid var(--line); background: var(--mat); color: var(--ink); font: inherit; cursor: pointer; transition: border-color 0.2s, background 0.2s, transform 0.25s; }
+.wh canvas { grid-row: 1 / 3; width: 56px; height: 42px; }
+.wh .whlbl { font: 600 12px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); align-self: end; }
+.wh b { font: 700 17px/1.2 var(--font-display); align-self: start; white-space: nowrap; }
+.wh[aria-pressed="true"] { border-color: var(--accent); background: var(--panel); transform: translateY(-2px); box-shadow: 0 6px 14px -8px var(--accent); }
+.wh[aria-pressed="true"] .whlbl { color: var(--accent); }
+.wharrow { font-size: 20px; color: var(--muted); }
+.swap { font: 600 20px/1 var(--font-body); width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--accent); cursor: pointer; transition: transform 0.3s; }
+.swap:active { transform: rotate(180deg); }
+.card[data-tag]:disabled { opacity: 0.55; }
+.pickhint { margin: 0 0 8px; font-size: 14px; color: var(--muted); }
+.card[data-tag]::after { content: attr(data-tag); position: absolute; top: 3px; right: 4px; font: 700 10px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+@keyframes flipin { from { transform: perspective(900px) rotateY(var(--flip, -14deg)); opacity: 0.35; } }
+.picker.flip { animation: flipin 0.35s ease-out; }
+@keyframes pop { 40% { transform: scale(1.08); } }
+.card.pop { animation: pop 0.3s ease-out; }
 /* after the base .picker and .card rules, so it wins on phones */
 @media (max-width: 899px) {
   .picker { grid-template-columns: repeat(6, 1fr); gap: 5px; }
   .card { min-height: 0; padding: 15px 2px 3px; }
   .card canvas { width: 100% !important; height: auto !important; }
   .card .num { font-size: 12px; top: 2px; left: 4px; }
+  .card[data-tag]::after { font-size: 8px; top: 3px; right: 2px; }
+  .wh canvas { width: 46px; height: 34px; }
+  .wh b { font-size: 15px; }
 }
 .card:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .result { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin-bottom: 10px; }
@@ -224,13 +245,16 @@ table.tape tr.on > td { background: var(--mat); }
   <div class="panel" role="tabpanel" id="panel-plan" aria-labelledby="tab-plan">
     <div class="cols">
       <div class="side">
-      <section aria-labelledby="hStart">
-        <h2 id="hStart">Start card</h2>
-        <div class="picker" id="pickStart"></div>
-      </section>
-      <section aria-labelledby="hEnd">
-        <h2 id="hEnd">End card</h2>
-        <div class="picker" id="pickEnd"></div>
+      <section aria-labelledby="hCards">
+        <h2 id="hCards">The cards</h2>
+        <div class="which">
+          <button type="button" class="wh" id="whStart" aria-pressed="true"><span class="whlbl">Start</span><canvas aria-hidden="true"></canvas><b></b></button>
+          <span class="wharrow" aria-hidden="true">&#8594;</span>
+          <button type="button" class="wh" id="whEnd" aria-pressed="false"><span class="whlbl">End</span><canvas aria-hidden="true"></canvas><b></b></button>
+          <button type="button" class="swap" id="swapCards" aria-label="Swap the start and end cards" title="Swap">&#8644;</button>
+        </div>
+        <p class="pickhint" id="pickHint" aria-live="polite"></p>
+        <div class="picker" id="pickCards"></div>
       </section>
       </div>
       <div class="side stagecol">
@@ -5234,33 +5258,69 @@ function drawCells(canvas, cells, w, h) {
   for (const c of backToFront(live)) drawCube(ctx, v, c.pos, c.color);
 }
 
-function buildPicker(id, which) {
+// One set of 12 cards for both picks. ui.pickFor says which one a tap sets: start first, then it moves on to end.
+// Tap Start or End above the cards to change that one again.
+function buildPicker() {
   for (let n = 1; n <= 12; n++) {
     const b = el("button", "card"),
       cv = el("canvas");
     b.type = "button";
     b.dataset.n = n;
-    b.setAttribute("aria-label", "Card " + n);
     b.append(el("span", "num", n), cv);
-    $(id).append(b);
+    $("pickCards").append(b);
     drawCells(cv, card(n), 84, 62);
     b.addEventListener("click", () => {
-      ui[which] = n;
+      ui[ui.pickFor] = n;
+      b.classList.remove("pop");
+      void b.offsetWidth; // so the pop plays again on a second tap
+      b.classList.add("pop");
+      if (ui.pickFor === "start") pickFor("end");
       replan();
     });
   }
+  on("whStart", () => pickFor("start"));
+  on("whEnd", () => pickFor("end"));
+  on("swapCards", () => {
+    [ui.start, ui.end] = [ui.end, ui.start];
+    replan();
+  });
+}
+function pickFor(which) {
+  if (ui.pickFor === which) return;
+  ui.pickFor = which;
+  const g = $("pickCards");
+  g.style.setProperty("--flip", which === "end" ? "-14deg" : "14deg"); // the cards turn over like a page, one way or back
+  g.classList.remove("flip");
+  void g.offsetWidth;
+  g.classList.add("flip");
+  markPicker();
 }
 function markPicker() {
-  for (const [id, which, other] of [
-    ["pickStart", "start", "end"],
-    ["pickEnd", "end", "start"],
+  const other = ui.pickFor === "start" ? "end" : "start";
+  for (const b of $("pickCards").children) {
+    const n = +b.dataset.n,
+      tag = n === ui[other] ? (other === "start" ? "Start" : "End") : "";
+    b.setAttribute("aria-pressed", n === ui[ui.pickFor] ? "true" : "false");
+    b.disabled = n === ui[other]; // start and end can't be the same card
+    if (tag) b.dataset.tag = tag;
+    else delete b.dataset.tag;
+    b.setAttribute("aria-label", "Card " + n + (tag ? ", the " + tag.toLowerCase() + " card" : ""));
+  }
+  for (const [id, which] of [
+    ["whStart", "start"],
+    ["whEnd", "end"],
   ]) {
-    for (const b of $(id).children) {
-      const n = +b.dataset.n;
-      b.setAttribute("aria-pressed", n === ui[which] ? "true" : "false");
-      b.disabled = n === ui[other];
+    const w = $(id),
+      n = ui[which];
+    w.setAttribute("aria-pressed", ui.pickFor === which ? "true" : "false");
+    w.setAttribute("aria-label", (which === "start" ? "Start" : "End") + " card: card " + n + ". Tap to pick it again.");
+    if (w.dataset.n !== String(n)) {
+      w.dataset.n = n;
+      w.querySelector("b").textContent = "Card " + n;
+      drawCells(w.querySelector("canvas"), card(n), innerWidth < 900 ? 46 : 56, innerWidth < 900 ? 34 : 42);
     }
   }
+  $("pickHint").textContent = ui.pickFor === "start" ? "Tap the card the cubes start on." : "Tap the card to build.";
 }
 
 // Where every cube is after each move. states[0] is the start card and the last one is the end card.
@@ -7702,7 +7762,7 @@ function initTabs() {
   // the pair in the top bar and "Change the cards" both go back to the card pickers
   const toCards = () => {
     showTab("plan");
-    $("hStart").scrollIntoView({ block: "start" });
+    $("hCards").scrollIntoView({ block: "start" });
     scrollBy(0, -80);
   };
   on("nowChip", toCards);
@@ -7782,8 +7842,8 @@ function init() {
   G.on = G.can = init3d();
   $("btnView").hidden = !G.can; // no 3D on this device, so there is nothing to switch
   showStage();
-  buildPicker("pickStart", "start");
-  buildPicker("pickEnd", "end");
+  ui.pickFor = "start";
+  buildPicker();
 
   // the plan
   const restart = () => {
